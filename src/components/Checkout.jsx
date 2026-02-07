@@ -1,0 +1,206 @@
+import React, { useState } from 'react';
+import { useCart } from '../context/CartContext';
+import { useNavigate } from 'react-router-dom';
+import './Checkout.css';
+
+const Checkout = () => {
+    const { cartItems, getCartBreakdown, placeOrder } = useCart();
+    const navigate = useNavigate();
+    const [paymentMethod, setPaymentMethod] = useState('cod');
+    const [loading, setLoading] = useState(false);
+    const [formData, setFormData] = useState({
+        fullName: '',
+        address: '',
+        city: '',
+        zipCode: '',
+        phone: ''
+    });
+
+    const { subtotal, handlingFee, total } = getCartBreakdown ? getCartBreakdown() : { subtotal: 0, handlingFee: 0, total: 0 };
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handlePaymentChange = (e) => {
+        setPaymentMethod(e.target.value);
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+
+        if (cartItems.length === 0) {
+            alert("Your cart is empty!");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const orderId = await placeOrder(formData, paymentMethod);
+            alert(`Order Placed Successfully! Order ID: ${orderId}`);
+            navigate('/'); // Or to an order success page
+        } catch (error) {
+            alert("Failed to place order: " + error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="checkout-container">
+            <h1>Checkout</h1>
+            <div className="checkout-content">
+                <div className="checkout-form-section">
+                    <h2>Shipping Details</h2>
+                    <form id="checkout-form" onSubmit={handleSubmit}>
+                        <div className="form-group">
+                            <label>Full Name</label>
+                            <input
+                                type="text"
+                                name="fullName"
+                                value={formData.fullName}
+                                onChange={handleInputChange}
+                                required
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Address</label>
+                            <input
+                                type="text"
+                                name="address"
+                                value={formData.address}
+                                onChange={handleInputChange}
+                                required
+                            />
+                        </div>
+                        <div className="form-row">
+                            <div className="form-group">
+                                <label>City</label>
+                                <input
+                                    type="text"
+                                    name="city"
+                                    value={formData.city}
+                                    onChange={handleInputChange}
+                                    required
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>ZIP Code</label>
+                                <input
+                                    type="text"
+                                    name="zipCode"
+                                    value={formData.zipCode}
+                                    onChange={handleInputChange}
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <div className="form-group">
+                            <label>Phone Number</label>
+                            <input
+                                type="tel"
+                                name="phone"
+                                value={formData.phone}
+                                onChange={handleInputChange}
+                                required
+                            />
+                        </div>
+
+                        <h2>Payment Method</h2>
+                        <div className="payment-options">
+                            <div className={`payment-option ${paymentMethod === 'cod' ? 'selected' : ''}`}>
+                                <input
+                                    type="radio"
+                                    id="cod"
+                                    name="payment"
+                                    value="cod"
+                                    checked={paymentMethod === 'cod'}
+                                    onChange={handlePaymentChange}
+                                />
+                                <label htmlFor="cod">
+                                    <span className="payment-title">Cash on Delivery</span>
+                                    <span className="payment-desc">Pay when you receive your order</span>
+                                </label>
+                            </div>
+
+                            <div className={`payment-option ${paymentMethod === 'dodopay' ? 'selected' : ''}`}>
+                                <input
+                                    type="radio"
+                                    id="dodopay"
+                                    name="payment"
+                                    value="dodopay"
+                                    checked={paymentMethod === 'dodopay'}
+                                    onChange={handlePaymentChange}
+                                />
+                                <label htmlFor="dodopay">
+                                    <span className="payment-title">Dodopay</span>
+                                    <span className="payment-desc">Secure online payment</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        {paymentMethod === 'dodopay' && (
+                            <div className="dodopay-form">
+                                <h3>Enter Card Details</h3>
+                                <div className="form-group">
+                                    <label>Card Number</label>
+                                    <input type="text" placeholder="0000 0000 0000 0000" maxLength="19" />
+                                </div>
+                                <div className="form-row">
+                                    <div className="form-group">
+                                        <label>Expiry Date</label>
+                                        <input type="text" placeholder="MM/YY" maxLength="5" />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>CVV</label>
+                                        <input type="password" placeholder="123" maxLength="3" />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label>Cardholder Name</label>
+                                    <input type="text" placeholder="Name on card" />
+                                </div>
+                            </div>
+                        )}
+                    </form>
+                </div>
+
+                <div className="order-summary">
+                    <h2>Order Summary</h2>
+                    <div className="summary-items">
+                        {cartItems.map(item => (
+                            <div key={item.id} className="summary-item">
+                                <span>{item.name} x {item.quantity}</span>
+                                <span>₹{item.price * item.quantity}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="summary-total-row" style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #eee' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                            <span>Subtotal</span>
+                            <span>₹{subtotal}</span>
+                        </div>
+                        {handlingFee > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', color: 'var(--color-text-light)' }}>
+                                <span>Handling Fee</span>
+                                <span>₹{handlingFee}</span>
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '1.2rem', marginTop: '1rem' }}>
+                            <span>Total Amount</span>
+                            <span>₹{total}</span>
+                        </div>
+                    </div>
+
+                    <button type="submit" form="checkout-form" className="place-order-btn" disabled={loading}>
+                        {loading ? 'Processing...' : (paymentMethod === 'cod' ? 'Place Order' : 'Pay with Dodopay')}
+                    </button>
+                    {loading && <p style={{ textAlign: 'center', marginTop: '10px' }}>Please wait, placing your order...</p>}
+                </div>
+            </div >
+        </div >
+    );
+};
+
+export default Checkout;
