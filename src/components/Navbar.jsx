@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import './Navbar.css';
@@ -8,13 +8,30 @@ const Navbar = () => {
     const [scrolled, setScrolled] = useState(false);
     const { cartItems } = useCart();
     const { currentUser, userRole, logout } = useAuth();
-    const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
+    const cartCount = cartItems?.reduce((acc, item) => acc + item.quantity, 0) || 0;
 
-    // ... (keep useEffect) ...
+    const navigate = useNavigate();
 
-    const handleLogout = () => {
-        logout();
-        window.location.href = '/';
+    useEffect(() => {
+        const handleScroll = () => {
+            setScrolled(window.scrollY > 50);
+        };
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    const handleLogout = async () => {
+        console.log("Navbar: Initiating logout...");
+        try {
+            // We call logout but don't strictly await it before starting navigation
+            // to ensure the UI feels responsive.
+            logout();
+            console.log("Navbar: Logout called, navigating to login...");
+            navigate('/login', { replace: true });
+        } catch (error) {
+            console.error("Logout navigation failed:", error);
+            window.location.href = '/login';
+        }
     };
 
     return (
@@ -57,9 +74,12 @@ const Navbar = () => {
                                     {cartCount > 0 && <span className="cart-count">{cartCount}</span>}
                                 </div>
                             </Link>
-                            <button onClick={handleLogout} className="signup-btn" style={{ border: 'none', cursor: 'pointer', fontSize: '0.95rem' }}>
-                                Sign Out
-                            </button>
+                            <div className="nav-user">
+                                <span className="user-email">{currentUser?.email}</span>
+                                <button onClick={handleLogout} className="signout-btn">
+                                    Sign Out
+                                </button>
+                            </div>
                         </>
                     )}
                 </div>

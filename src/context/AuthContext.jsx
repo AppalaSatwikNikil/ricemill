@@ -4,16 +4,20 @@ import emailjs from '@emailjs/browser';
 
 const AuthContext = createContext();
 
-export const useAuth = () => {
-    return useContext(AuthContext);
-};
+export function useAuth() {
+    const context = useContext(AuthContext);
+    if (context === undefined) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
+}
 
-export const AuthProvider = ({ children }) => {
+export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(null);
-    const [userRole, setUserRole] = useState(null); // 'admin' or 'customer'
+    const [userRole, setUserRole] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    const fetchProfile = async (userId) => {
+    async function fetchProfile(userId) {
         try {
             const { data, error } = await supabase
                 .from('profiles')
@@ -23,40 +27,54 @@ export const AuthProvider = ({ children }) => {
 
             if (data && !error) {
                 setUserRole(data.role);
-                // Return data if needed
                 return data;
             }
         } catch (error) {
             console.error('Error fetching profile:', error);
         }
-        setUserRole('customer'); // Default to customer on error
+        setUserRole('customer');
         return null;
-    };
+    }
 
     useEffect(() => {
         let mounted = true;
 
         const initializeAuth = async () => {
+            console.log("Starting Auth Initialization...");
+
+            // Set a safety timeout - if auth check takes > 5s, 
+            // force loading to false to show the UI
+            const timeout = setTimeout(() => {
+                if (mounted && loading) {
+                    console.warn("Auth initialization timed out - forcing loading to false");
+                    setLoading(false);
+                }
+            }, 5000);
+
             try {
                 // Get initial session
+                console.log("Fetching Supabase session...");
                 const { data: { session }, error } = await supabase.auth.getSession();
 
                 if (error) throw error;
 
                 if (mounted) {
                     if (session?.user) {
+                        console.log("Session found for:", session.user.email);
                         setCurrentUser(session.user);
-                        // Fetch profile in parallel, don't block main render if possible, 
-                        // or block but with timeout? 
-                        // Current logic: await fetchProfile. 
-                        // If profile fetch fails, we still want to be logged in.
-                        await fetchProfile(session.user.id);
+                        fetchProfile(session.user.id);
+                    } else {
+                        console.log("No active session found.");
                     }
                 }
             } catch (err) {
                 console.error("Auth initialization error:", err);
             } finally {
-                if (mounted) setLoading(false);
+                clearTimeout(timeout);
+                if (mounted) {
+                    console.log("Auth Initialization complete.");
+                    setLoading(false);
+                }
             }
         };
 
@@ -140,12 +158,25 @@ export const AuthProvider = ({ children }) => {
         return data;
     };
 
-    const logout = async () => {
-        const { error } = await supabase.auth.signOut();
-        if (error) throw error;
-        setUserRole(null);
-        setCurrentUser(null);
-    };
+    async function logout() {
+        console.log("Logout initiated...");
+        try {
+            // Clear local state IMMEDIATELY for snappy UI response
+            setCurrentUser(null);
+            setUserRole(null);
+
+            // Then perform the background cleanup
+            const { error } = await supabase.auth.signOut();
+            if (error) console.error("Supabase signOut error:", error);
+        } catch (error) {
+            console.error('Error during logout execution:', error);
+        } finally {
+            console.log("Logout cleanup complete.");
+            // Ensure state is definitely cleared
+            setCurrentUser(null);
+            setUserRole(null);
+        }
+    }
 
     const resetPassword = async (email) => {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -161,7 +192,8 @@ export const AuthProvider = ({ children }) => {
 
     const value = {
         currentUser,
-        userRole, // Expose role
+        userRole,
+        loading, // Expose loading state
         signup,
         login,
         logout,
@@ -171,7 +203,7 @@ export const AuthProvider = ({ children }) => {
 
     return (
         <AuthContext.Provider value={value}>
-            {!loading && children}
+            {children}
         </AuthContext.Provider>
     );
 };

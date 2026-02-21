@@ -1,16 +1,22 @@
 :root {
   /* Color Palette */
-  --color-primary: #784E30; /* Brown from buttons */
+  --color-primary: #784E30;
+  /* Brown from buttons */
   --color-primary-dark: #5C3A22;
-  --color-secondary: #FDFBF7; /* Cream background */
-  --color-text-dark: #2A1B12; /* Dark brown for headings */
-  --color-text-body: #665C55; /* Muted brown-grey for body */
+  --color-secondary: #FDFBF7;
+  /* Cream background */
+  --color-text-dark: #2A1B12;
+  /* Dark brown for headings */
+  --color-text-body: #665C55;
+  /* Muted brown-grey for body */
   --color-white: #FFFFFF;
-  --color-green: #749F51; /* Fresh green for accents/badges */
+  --color-green: #749F51;
+  /* Fresh green for accents/badges */
   --color-border: #E8E1D9;
 
   /* Typography */
-  --font-heading: 'Merriweather', serif; /* Placeholder for serif */
+  --font-heading: 'Merriweather', serif;
+  /* Placeholder for serif */
   --font-body: 'Inter', sans-serif;
 
   /* Spacing */
@@ -41,7 +47,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--font-heading);
   color: var(--color-text-dark);
   font-weight: 700;
@@ -106,8 +117,65 @@ ul {
   padding: var(--spacing-xl) 0;
 }
 
-.text-center { text-align: center; }
-.flex { display: flex; }
-.items-center { align-items: center; }
-.justify-between { justify-content: space-between; }
-.grid { display: grid; }
+.text-center {
+  text-align: center;
+}
+
+.flex {
+  display: flex;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.grid {
+  display: grid;
+}
+
+/* Global Loading Spinner */
+.loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-secondary);
+  z-index: 9999;
+}
+
+.spinner-premium {
+  width: 60px;
+  height: 60px;
+  border: 3px solid rgba(120, 78, 48, 0.1);
+  border-top: 3px solid var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1.5rem;
+}
+
+.loading-text {
+  font-family: var(--font-heading);
+  color: var(--color-primary);
+  font-size: 1.1rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}

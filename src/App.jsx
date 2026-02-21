@@ -1,14 +1,7 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { CartProvider } from './context/CartContext';
-import { AuthProvider } from './context/AuthContext';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Home from './components/Home';
-import Hero from './components/Hero';
-import Features from './components/Features';
-import Products from './components/Products';
-import About from './components/About';
-import Contact from './components/Contact';
 import Footer from './components/Footer';
 import ChatWidget from './components/ChatWidget';
 import Login from './components/Login';
@@ -19,6 +12,8 @@ import Checkout from './components/Checkout';
 import AdminDashboard from './components/AdminDashboard';
 import AdminRoute from './components/AdminRoute';
 import './App.css';
+import PublicRoute from './components/PublicRoute';
+import ProtectedRoute from './components/ProtectedRoute';
 
 // Simple Inline Error Boundary for now
 class ErrorBoundary extends React.Component {
@@ -28,7 +23,7 @@ class ErrorBoundary extends React.Component {
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true };
+    return { hasError: true, error };
   }
 
   componentDidCatch(error, errorInfo) {
@@ -37,42 +32,52 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
-      return <h1>Something went wrong. Please refresh the page.</h1>;
+      return (
+        <div className="error-boundary-screen" style={{ padding: '4rem 2rem', textAlign: 'center', background: 'var(--color-bg-light)', minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          <h1 style={{ color: 'var(--color-primary)', marginBottom: '1rem' }}>SANTI RICE MILL</h1>
+          <h2>Something went wrong.</h2>
+          <p style={{ color: 'red', margin: '1.5rem 0', maxWidth: '500px' }}>{this.state.error?.message || "An unexpected error occurred."}</p>
+          <button onClick={() => window.location.href = '/'} className="btn btn-primary">Go to Home</button>
+          <button onClick={() => window.location.reload()} className="btn btn-outline" style={{ marginTop: '1rem' }}>Refresh Page</button>
+        </div>
+      );
     }
 
-    return this.props.children;
+    return this.props.children || null;
   }
 }
 
 function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <CartProvider>
-          <BrowserRouter>
-            <div className="app">
-              <Navbar />
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                <Route path="/forgot-password" element={<ForgotPassword />} />
-                <Route path="/cart" element={<Cart />} />
-                <Route path="/checkout" element={<Checkout />} />
-                <Route path="/admin" element={
-                  <AdminRoute>
-                    <AdminDashboard />
-                  </AdminRoute>
-                } />
-                {/* Catch-all for Supabase redirects with errors */}
-                <Route path="*" element={<Home />} />
-              </Routes>
-              <Footer />
-              <ChatWidget />
-            </div>
-          </BrowserRouter>
-        </CartProvider>
-      </AuthProvider>
+      <div className="app">
+        <Navbar />
+        <main className="main-content">
+          <Routes>
+            {/* Public routes (Login/Register accessible only when logged out) */}
+            <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+            <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+            <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+
+            {/* Protected routes (Accessible only when logged in) */}
+            <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+            <Route path="/cart" element={<ProtectedRoute><Cart /></ProtectedRoute>} />
+            <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
+
+            {/* Admin routes */}
+            <Route path="/admin" element={
+              <AdminRoute>
+                <AdminDashboard />
+              </AdminRoute>
+            } />
+
+            {/* Catch-all - redirect to landing (Home) which handles auth check */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+        <Footer />
+        <ChatWidget />
+      </div>
     </ErrorBoundary>
   );
 }

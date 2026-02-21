@@ -1,30 +1,70 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../supabaseClient';
+import { useAuth } from '../context/AuthContext';
 import './Products.css';
 
 const ProductCard = ({ product }) => {
-    const [quantity, setQuantity] = useState(1);
-    const [selectedWeight, setSelectedWeight] = useState("5kg"); // Default weight (or fetch from DB if we had variants)
-    const { addToCart } = useCart();
+    const [selectedWeight, setSelectedWeight] = useState("5kg"); // Default weight
+    const [actionLoading, setActionLoading] = useState(false);
+    const { cartItems, addToCart, updateQuantity, removeFromCart } = useCart();
 
-    // Mock options since we don't have separate product_variants table yet
     const options = ["5kg", "10kg", "25kg"];
+    const cartItemId = `${product.id}-${selectedWeight}`;
+    const cartItem = cartItems.find(item => item.id === cartItemId);
+    const quantity = cartItem ? cartItem.quantity : 0;
+
+    const handleIncrease = async () => {
+        setActionLoading(true);
+        try {
+            if (cartItem) {
+                await updateQuantity(cartItemId, quantity + 1);
+            } else {
+                await addToCart(
+                    {
+                        ...product,
+                        id: cartItemId,
+                        product_id: product.id,
+                        weight: selectedWeight,
+                        name: `${product.name} (${selectedWeight})`
+                    },
+                    1
+                );
+            }
+        } catch (err) {
+            console.error("Action failed:", err);
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleDecrease = async () => {
+        if (quantity === 0) return;
+        setActionLoading(true);
+        try {
+            if (quantity > 1) {
+                await updateQuantity(cartItemId, quantity - 1);
+            } else {
+                await removeFromCart(cartItemId);
+            }
+        } catch (err) {
+            console.error("Action failed:", err);
+        } finally {
+            setActionLoading(false);
+        }
+    };
 
     const handleAddToCart = () => {
-        addToCart(
-            { ...product, name: `${product.name} (${selectedWeight})` },
-            quantity
-        );
-        alert(`Added ${quantity} x ${product.name} to cart`);
+        if (!actionLoading) {
+            handleIncrease();
+        }
     };
 
     return (
-        <div className="product-card">
+        <div className={`product-card ${actionLoading ? 'processing' : ''}`}>
             <div className="product-image-container">
-                {/* {product.badge && <span className={`product-badge ${product.badge.toLowerCase().replace(' ', '-')}`}>{product.badge}</span>} */}
-                {/* Fallback image if url is missing or placeholder */}
                 <img src={product.image_url || "/assets/product-placeholder.png"} alt={product.name} className="product-image" />
+                {actionLoading && <div className="card-overlay"><div className="spinner-mini"></div></div>}
             </div>
             <div className="product-details">
                 <h3 className="product-title">{product.name}</h3>
@@ -35,7 +75,8 @@ const ProductCard = ({ product }) => {
                         <button
                             key={opt}
                             className={`weight-btn ${selectedWeight === opt ? 'active' : ''}`}
-                            onClick={() => setSelectedWeight(opt)}
+                            onClick={() => !actionLoading && setSelectedWeight(opt)}
+                            disabled={actionLoading}
                         >
                             {opt}
                         </button>
@@ -48,23 +89,28 @@ const ProductCard = ({ product }) => {
 
                 <div className="product-actions">
                     <div className="quantity-selector">
-                        <button onClick={() => setQuantity(Math.max(1, quantity - 1))}>−</button>
+                        <button onClick={handleDecrease} disabled={quantity === 0 || actionLoading}>−</button>
                         <span>{quantity}</span>
-                        <button onClick={() => setQuantity(quantity + 1)}>+</button>
+                        <button onClick={handleIncrease} disabled={actionLoading}>+</button>
                     </div>
                     <div className="product-buttons">
-                        <button className="add-to-cart-btn" onClick={handleAddToCart}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" /><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" /></svg>
-                            Add to Cart
+                        <button
+                            className="add-to-cart-btn"
+                            onClick={handleAddToCart}
+                            disabled={actionLoading}
+                        >
+                            {actionLoading ? '...' : (quantity > 0 ? `In Cart (${quantity})` : 'Add to Cart')}
                         </button>
-                        <button className="buy-now-btn" onClick={() => {
-                            addToCart({ ...product, name: `${product.name} (${selectedWeight})` }, quantity);
-                            // Immediate redirect to checkout context? 
-                            // We need to access navigate here. 
-                            // But ProductCard is inside Products. 
-                            // We can pass navigate or use hook.
-                            window.location.href = '/checkout'; // Simple redirect for now
-                        }}>
+                        <button
+                            className="buy-now-btn"
+                            disabled={actionLoading}
+                            onClick={async () => {
+                                if (quantity === 0) {
+                                    await handleIncrease();
+                                }
+                                window.location.href = '/checkout';
+                            }}
+                        >
                             Buy Now
                         </button>
                     </div>
@@ -79,53 +125,84 @@ const Products = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    const { currentUser } = useAuth();
+
+    const [debugStatus, setDebugStatus] = useState('Initializing...');
+    const [activeDebug, setActiveDebug] = useState(false);
+    const fetchInProgress = useRef(false);
+
     useEffect(() => {
-        fetchProducts();
-    }, []);
+        if (currentUser) {
+            fetchProducts();
+        } else {
+            setProducts([]);
+            setLoading(false);
+        }
+    }, [currentUser]);
 
     const fetchProducts = async () => {
+        if (fetchInProgress.current) return;
+
+        setActiveDebug(true);
+        fetchInProgress.current = true;
         setLoading(true);
+        setError(null);
+        setDebugStatus('Starting multi-path fetch...');
+
+        const timeoutPromise = (ms) => new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('NETWORK_TIMEOUT')), ms)
+        );
+
         try {
-            // calculated "is_active" eq true manually if needed, or add to query string
-            const { data, error } = await supabase
-                .from('products')
-                .select('*')
-                .eq('is_active', true)
-                .order('name');
+            console.log("Products: Trying Supabase Client path...");
+            setDebugStatus('Querying via Supabase Client...');
 
-            if (error) throw error;
-            setProducts(data || []);
+            // Try Supabase client with a 7s timeout
+            const supabasePromise = supabase.from('products').select('*');
+            const data = await Promise.race([supabasePromise, timeoutPromise(7000)]);
+
+            if (data.error) throw data.error;
+
+            console.log("Products: Supabase Client success!", data.data?.length);
+            setProducts(data.data || []);
+            setDebugStatus(`Success! Loaded ${data.data?.length} products.`);
         } catch (err) {
-            console.error('Supabase SDK fetch failed:', err);
+            console.error('Products: Supabase Client path failed:', err);
 
-            // Fallback: Try direct REST fetch
-            try {
-                const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-                const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+            if (err.message === 'NETWORK_TIMEOUT') {
+                setDebugStatus('Client timed out. Trying Direct API Fetch...');
+                try {
+                    // Fallback to direct REST API call if the client library is hanging
+                    const directUrl = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/products?select=*`;
+                    const directResponse = await Promise.race([
+                        fetch(directUrl, {
+                            headers: {
+                                'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+                                'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+                            }
+                        }),
+                        timeoutPromise(5000)
+                    ]);
 
-                if (!supabaseUrl || !supabaseKey) throw new Error("Missing Supabase Env vars for fallback");
+                    if (!directResponse.ok) throw new Error(`API returned ${directResponse.status}`);
 
-                const response = await fetch(`${supabaseUrl}/rest/v1/products?is_active=eq.true&select=*&order=name.asc`, {
-                    headers: {
-                        'apikey': supabaseKey,
-                        'Authorization': `Bearer ${supabaseKey}`
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Fallback fetch failed: ${response.status} ${response.statusText}`);
+                    const directData = await directResponse.json();
+                    console.log("Products: Direct API Path success!", directData?.length);
+                    setProducts(directData || []);
+                    setDebugStatus(`Loaded via API Fallback (${directData?.length} items).`);
+                } catch (fallbackErr) {
+                    console.error('Products: Fallback path also failed:', fallbackErr);
+                    setError(`Connection Error: ${fallbackErr.message}. Please check if an ad-blocker is blocking Supabase.`);
+                    setDebugStatus(`Critical failure: ${fallbackErr.message}`);
                 }
-
-                const data = await response.json();
-                setProducts(data || []);
-                // Clear error if fallback succeeded
-                setError(null);
-            } catch (fallbackErr) {
-                console.error('Fallback fetch also failed:', fallbackErr);
-                setError(`Failed to load products. SDK Error: ${err.message}. Fallback Error: ${fallbackErr.message}`);
+            } else {
+                setError(`Database Error: ${err.message}`);
+                setDebugStatus(`Failed: ${err.message}`);
             }
         } finally {
             setLoading(false);
+            fetchInProgress.current = false;
+            console.log("Products: Fetch cycle complete.");
         }
     };
 
@@ -140,14 +217,33 @@ const Products = () => {
                     </p>
                 </div>
 
-                {loading ? (
+                {!currentUser ? (
+                    <div className="auth-notice text-center" style={{ padding: '4rem 0' }}>
+                        <h3>Please Log In</h3>
+                        <p>You must be logged in to view and purchase our premium rice collection.</p>
+                        <a href="/login" className="btn btn-primary" style={{ marginTop: '1rem' }}>Login Now</a>
+                    </div>
+                ) : loading ? (
                     <div className="loading-state text-center" style={{ padding: '4rem 0' }}>
                         <div className="spinner"></div>
                         <p>Loading products...</p>
+                        <p style={{ fontSize: '0.8rem', color: '#666', marginTop: '1rem' }}>Status: {debugStatus}</p>
+                        <button
+                            onClick={() => { fetchInProgress.current = false; fetchProducts(); }}
+                            className="btn btn-outline"
+                            style={{ marginTop: '1rem', fontSize: '0.8rem' }}
+                        >
+                            Retry Connection
+                        </button>
                     </div>
                 ) : error ? (
-                    <div className="error-state text-center" style={{ color: 'red', padding: '2rem 0' }}>
-                        {error}
+                    <div className="error-state text-center" style={{ padding: '2rem 0' }}>
+                        <p style={{ color: 'red', marginBottom: '1rem' }}>{error}</p>
+                        <button onClick={fetchProducts} className="btn btn-outline">Retry Loading</button>
+                    </div>
+                ) : products.length === 0 ? (
+                    <div className="empty-state text-center" style={{ padding: '4rem 0' }}>
+                        <p>No products available at the moment.</p>
                     </div>
                 ) : (
                     <div className="products-grid">
