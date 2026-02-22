@@ -7,9 +7,26 @@ import './Products.css';
 const ProductCard = ({ product }) => {
     const [selectedWeight, setSelectedWeight] = useState("5kg"); // Default weight
     const { cartItems, addToCart, updateQuantity, removeFromCart, generateItemId } = useCart();
-
     const options = ["5kg", "10kg", "25kg"];
-    // Stable, user-isolated ID
+
+    // 1. Calculate items for THIS product across all weights
+    const productItemsInCart = cartItems.filter(item =>
+        (item.product_id === product.id || item.id?.includes(`-${product.id}-`))
+    );
+    const totalQtyInCart = productItemsInCart.reduce((sum, item) => sum + item.quantity, 0);
+
+    // 2. Auto-select weight on mount if something is already in cart
+    useEffect(() => {
+        if (productItemsInCart.length > 0 && selectedWeight === "5kg") {
+            // Find the first weight that is actually in the cart
+            const itemInCart = productItemsInCart[0];
+            if (itemInCart && itemInCart.weight && options.includes(itemInCart.weight)) {
+                setSelectedWeight(itemInCart.weight);
+            }
+        }
+    }, [productItemsInCart.length]);
+
+    // 3. Specific state for selected weight
     const cartItemId = generateItemId(product.id, selectedWeight);
     const cartItem = cartItems.find(item => item.id === cartItemId);
     const quantity = cartItem ? cartItem.quantity : 0;
@@ -60,6 +77,13 @@ const ProductCard = ({ product }) => {
                 <div className="product-price">
                     ₹{product.price} <span className="price-unit">/ {selectedWeight}</span>
                 </div>
+
+                {totalQtyInCart > 0 && (
+                    <div className="total-cart-badge">
+                        {totalQtyInCart} total in cart
+                        {productItemsInCart.length > 1 && ` (${productItemsInCart.length} sizes)`}
+                    </div>
+                )}
 
                 <div className="product-actions">
                     <div className="quantity-selector">
