@@ -6,7 +6,6 @@ import './Products.css';
 
 const ProductCard = ({ product }) => {
     const [selectedWeight, setSelectedWeight] = useState("5kg"); // Default weight
-    const [actionLoading, setActionLoading] = useState(false);
     const { cartItems, addToCart, updateQuantity, removeFromCart } = useCart();
 
     const options = ["5kg", "10kg", "25kg"];
@@ -14,57 +13,32 @@ const ProductCard = ({ product }) => {
     const cartItem = cartItems.find(item => item.id === cartItemId);
     const quantity = cartItem ? cartItem.quantity : 0;
 
-    const handleIncrease = async () => {
-        setActionLoading(true);
-        try {
-            if (cartItem) {
-                await updateQuantity(cartItemId, quantity + 1);
-            } else {
-                await addToCart(
-                    {
-                        ...product,
-                        id: cartItemId,
-                        product_id: product.id,
-                        weight: selectedWeight,
-                        name: `${product.name} (${selectedWeight})`
-                    },
-                    1
-                );
-            }
-        } catch (err) {
-            console.error("Action failed:", err);
-        } finally {
-            setActionLoading(false);
-        }
+    const handleIncrease = () => {
+        addToCart(
+            {
+                ...product,
+                id: cartItemId,
+                product_id: product.id,
+                weight: selectedWeight,
+                name: `${product.name} (${selectedWeight})`
+            },
+            1
+        );
     };
 
-    const handleDecrease = async () => {
+    const handleDecrease = () => {
         if (quantity === 0) return;
-        setActionLoading(true);
-        try {
-            if (quantity > 1) {
-                await updateQuantity(cartItemId, quantity - 1);
-            } else {
-                await removeFromCart(cartItemId);
-            }
-        } catch (err) {
-            console.error("Action failed:", err);
-        } finally {
-            setActionLoading(false);
-        }
+        updateQuantity(cartItemId, quantity - 1);
     };
 
     const handleAddToCart = () => {
-        if (!actionLoading) {
-            handleIncrease();
-        }
+        handleIncrease();
     };
 
     return (
-        <div className={`product-card ${actionLoading ? 'processing' : ''}`}>
+        <div className="product-card">
             <div className="product-image-container">
                 <img src={product.image_url || "/assets/product-placeholder.png"} alt={product.name} className="product-image" />
-                {actionLoading && <div className="card-overlay"><div className="spinner-mini"></div></div>}
             </div>
             <div className="product-details">
                 <h3 className="product-title">{product.name}</h3>
@@ -75,8 +49,7 @@ const ProductCard = ({ product }) => {
                         <button
                             key={opt}
                             className={`weight-btn ${selectedWeight === opt ? 'active' : ''}`}
-                            onClick={() => !actionLoading && setSelectedWeight(opt)}
-                            disabled={actionLoading}
+                            onClick={() => setSelectedWeight(opt)}
                         >
                             {opt}
                         </button>
@@ -89,24 +62,22 @@ const ProductCard = ({ product }) => {
 
                 <div className="product-actions">
                     <div className="quantity-selector">
-                        <button onClick={handleDecrease} disabled={quantity === 0 || actionLoading}>−</button>
+                        <button onClick={handleDecrease} disabled={quantity === 0}>−</button>
                         <span>{quantity}</span>
-                        <button onClick={handleIncrease} disabled={actionLoading}>+</button>
+                        <button onClick={handleIncrease}>+</button>
                     </div>
                     <div className="product-buttons">
                         <button
                             className="add-to-cart-btn"
                             onClick={handleAddToCart}
-                            disabled={actionLoading}
                         >
-                            {actionLoading ? '...' : (quantity > 0 ? `In Cart (${quantity})` : 'Add to Cart')}
+                            {quantity > 0 ? `In Cart (${quantity})` : 'Add to Cart'}
                         </button>
                         <button
                             className="buy-now-btn"
-                            disabled={actionLoading}
-                            onClick={async () => {
+                            onClick={() => {
                                 if (quantity === 0) {
-                                    await handleIncrease();
+                                    handleIncrease();
                                 }
                                 window.location.href = '/checkout';
                             }}

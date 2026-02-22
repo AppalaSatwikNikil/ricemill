@@ -12,13 +12,25 @@ export function CartProvider({ children }) {
     const { currentUser } = useAuth();
     const [cartItems, setCartItems] = useState([]);
     const [isInitialLoad, setIsInitialLoad] = useState(true);
+    const cartRef = React.useRef([]);
+
+    // Truly synchronous helper to update both state and ref
+    const syncState = (nextItems) => {
+        cartRef.current = nextItems;
+        setCartItems(nextItems);
+        if (!currentUser) {
+            localStorage.setItem('cart_guest', JSON.stringify(nextItems));
+        }
+    };
 
     const fetchCart = async () => {
         if (!currentUser) {
             try {
                 const localData = localStorage.getItem('cart_guest');
                 const items = localData ? JSON.parse(localData) : [];
-                setCartItems(Array.isArray(items) ? items : []);
+                const finalItems = Array.isArray(items) ? items : [];
+                cartRef.current = finalItems;
+                setCartItems(finalItems);
             } catch (err) {
                 console.error('Error parsing local cart:', err);
                 setCartItems([]);
@@ -41,7 +53,9 @@ export function CartProvider({ children }) {
 
             if (error) throw error;
             console.log("Cart: Successfully fetched", data?.length, "items.");
-            setCartItems(Array.isArray(data) ? data : []);
+            const items = Array.isArray(data) ? data : [];
+            cartRef.current = items;
+            setCartItems(items);
         } catch (error) {
             console.error('Cart: Error fetching from DB:', error.message);
             setCartItems([]); // Fallback to empty array on error
@@ -78,159 +92,113 @@ export function CartProvider({ children }) {
 
     const mergeGuestCart = async (items) => {
         for (const item of items) {
-            await addToCart(item, item.quantity, true);
+            await addToCart(item, item.quantity);
         }
         await fetchCart();
     };
 
-    const addToCart = async (product, quantity = 1, isSilent = false) => {
-        console.log("Cart: Adding to cart:", product.name, "Qty:", quantity);
-        if (!currentUser) {
-            setCartItems((prevItems) => {
-                const existingItem = prevItems.find((item) => item.id === product.id);
-                let newItems;
-                if (existingItem) {
-                    newItems = prevItems.map((item) =>
-                        item.id === product.id ? { ...item, quantity: item.quantity + quantity } : item
-                    );
-                } else {
-                    newItems = [...prevItems, { ...product, quantity }];
-                }
-                localStorage.setItem('cart_guest', JSON.stringify(newItems));
-                return newItems;
-            });
-            return;
+    const addToCart = async (product, quantity = 1) => {
+        console.log("Cart: Adding item:", product.name, "Qty Delta:", quantity);
+        const prevCart = [...cartRef.current];
+
+        // 1. Calculate NEXT state synchronously
+        const existing = prevCart.find(item => item.id === product.id);
+        let nextCart;
+        let finalQty;
+
+        if (existing) {
+            finalQty = existing.quantity + quantity;
+            nextCart = prevCart.map(item => item.id === product.id ? { ...item, quantity: finalQty } : item);
+        } else {
+            finalQty = quantity;
+            nextCart = [...prevCart, { ...product, quantity: finalQty }];
         }
 
-        const timeoutPromise = (ms) => new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('CART_TIMEOUT')), ms)
-        );
+        // 2. Update UI & Ref instantly
+        syncState(nextCart);
 
+        if (!currentUser) return;
+
+        // 3. Sync with DB
         try {
-            const existingItem = cartItems.find(item => item.id === product.id);
+            const idParts = product.id.split('-');
+            const realProductId = product.product_id || (idParts.length > 1 ? idParts.slice(0, -1).join('-') : product.id);
+            const realWeight = product.weight || idParts[idParts.length - 1];
 
-            if (existingItem) {
-                // RULE: If already in cart, increment quantity
-                const newQty = existingItem.quantity + quantity;
-                console.log(`Cart: Item exists. Incrementing quantity from ${existingItem.quantity} to ${newQty}`);
+            const { error } = await supabase
+                .from('cart_items')
+                .upsert({
+                    id: product.id,
+                    user_id: currentUser.id,
+                    product_id: realProductId,
+                    name: product.name,
+                    price: product.price,
+                    quantity: finalQty,
+                    weight: realWeight,
+                    image_url: product.image_url,
+                    updated_at: new Date()
+                });
 
-                const updateCall = supabase
-                    .from('cart_items')
-                    .update({ quantity: newQty, updated_at: new Date() })
-                    .eq('id', product.id)
-                    .eq('user_id', currentUser.id);
-
-                const { error } = await Promise.race([updateCall, timeoutPromise(6000)]);
-                if (error) throw error;
-            } else {
-                // RULE: If NOT in cart, insert with initial quantity
-                const idParts = product.id.split('-');
-                const parsedProductId = idParts.length > 1 ? idParts.slice(0, -1).join('-') : product.id;
-                const realProductId = product.product_id || parsedProductId;
-                const realWeight = product.weight || idParts[idParts.length - 1];
-
-                console.log("Cart: Inserting new item. RealPID:", realProductId, "Weight:", realWeight);
-                const insertCall = supabase
-                    .from('cart_items')
-                    .insert({
-                        id: product.id,
-                        user_id: currentUser.id,
-                        product_id: realProductId,
-                        name: product.name,
-                        price: product.price,
-                        quantity: quantity,
-                        weight: realWeight,
-                        image_url: product.image_url
-                    });
-
-                const { error } = await Promise.race([insertCall, timeoutPromise(6000)]);
-                if (error) throw error;
-            }
-
-            console.log("Cart: DB action successful, syncing...");
-            await fetchCart();
+            if (error) throw error;
         } catch (error) {
-            console.error('Cart: Add/Update error:', error.message);
-            throw error;
+            console.error('Cart: DB Sync Error:', error.message);
+            syncState(prevCart); // Rollback
         }
     };
 
     const removeFromCart = async (id) => {
-        if (!currentUser) {
-            setCartItems((prevItems) => {
-                const newItems = prevItems.filter((item) => item.id !== id);
-                localStorage.setItem('cart_guest', JSON.stringify(newItems));
-                return newItems;
-            });
-            return;
-        }
+        console.log("Cart: Removing item:", id);
+        const prevCart = [...cartRef.current];
+        const nextCart = prevCart.filter(item => item.id !== id);
 
-        const timeoutPromise = (ms) => new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('CART_REMOVE_TIMEOUT')), ms)
-        );
+        syncState(nextCart);
+
+        if (!currentUser) return;
 
         try {
-            console.log(`Cart: Removing item ${id}`);
-            const deleteCall = supabase
+            const { error } = await supabase
                 .from('cart_items')
                 .delete()
                 .eq('id', id)
                 .eq('user_id', currentUser.id);
 
-            const { error } = await Promise.race([deleteCall, timeoutPromise(6000)]);
-
             if (error) throw error;
-            console.log("Cart: Remove successful, fetching...");
-            await fetchCart();
         } catch (error) {
-            console.error('Cart: Remove from cart DB error:', error.message);
-            throw error;
+            console.error('Cart: Remove error:', error.message);
+            syncState(prevCart);
         }
     };
 
     const updateQuantity = async (id, quantity) => {
-        // RULE: If quantity = 0 (or less), remove from cart
         if (quantity < 1) {
-            console.log(`Cart: Quantity for ${id} is 0. Removing...`);
-            await removeFromCart(id);
-            return;
+            return removeFromCart(id);
         }
 
-        if (!currentUser) {
-            setCartItems((prevItems) => {
-                const newItems = prevItems.map((item) => item.id === id ? { ...item, quantity } : item);
-                localStorage.setItem('cart_guest', JSON.stringify(newItems));
-                return newItems;
-            });
-            return;
-        }
+        console.log("Cart: Updating quantity:", id, "to", quantity);
+        const prevCart = [...cartRef.current];
+        const nextCart = prevCart.map(item => item.id === id ? { ...item, quantity } : item);
 
-        const timeoutPromise = (ms) => new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('CART_TIMEOUT')), ms)
-        );
+        syncState(nextCart);
+
+        if (!currentUser) return;
 
         try {
-            console.log(`Cart: Updating quantity in Supabase for ${id} to ${quantity}`);
-            const updateCall = supabase
+            const { error } = await supabase
                 .from('cart_items')
                 .update({ quantity, updated_at: new Date() })
                 .eq('id', id)
                 .eq('user_id', currentUser.id);
 
-            const { error } = await Promise.race([updateCall, timeoutPromise(6000)]);
             if (error) throw error;
-
-            console.log("Cart: Update successful, syncing UI...");
-            await fetchCart();
         } catch (error) {
-            console.error('Cart: Update quantity error:', error.message);
-            throw error;
+            console.error('Cart: Sync quantity error:', error.message);
+            syncState(prevCart);
         }
     };
 
     const clearCart = async () => {
         if (!currentUser) {
-            setCartItems([]);
+            syncState([]);
             localStorage.removeItem('cart_guest');
             return;
         }
@@ -242,7 +210,7 @@ export function CartProvider({ children }) {
                 .eq('user_id', currentUser.id);
 
             if (error) throw error;
-            setCartItems([]);
+            syncState([]);
         } catch (error) {
             console.error('Clear cart DB error:', error);
         }
