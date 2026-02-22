@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import './AdminDashboard.css';
 
@@ -6,10 +7,33 @@ const AdminDashboard = () => {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState('all');
+    const navigate = useNavigate();
 
     useEffect(() => {
-        fetchOrders();
-    }, []);
+        const checkAuth = () => {
+            const session = localStorage.getItem('santi_admin_session');
+            if (!session) {
+                navigate('/admin/login');
+                return false;
+            }
+            const parsed = JSON.parse(session);
+            if (new Date().getTime() > parsed.expiry) {
+                localStorage.removeItem('santi_admin_session');
+                navigate('/admin/login');
+                return false;
+            }
+            return true;
+        };
+
+        if (checkAuth()) {
+            fetchOrders();
+        }
+    }, [navigate]);
+
+    const handleLogout = () => {
+        localStorage.removeItem('santi_admin_session');
+        navigate('/admin/login');
+    };
 
     const fetchOrders = async () => {
         setLoading(true);
@@ -17,13 +41,14 @@ const AdminDashboard = () => {
             const { data, error } = await supabase
                 .from('orders')
                 .select(`
-                    *,
-                    profiles:user_id (full_name, email),
-                    order_items (
                         *,
-                        products (name)
-                    )
-                `)
+                        profiles:user_id (full_name, email),
+                        order_items (
+                            *,
+                            products (name)
+                        )
+                    `)
+                .eq('admin_hidden', false)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -35,7 +60,32 @@ const AdminDashboard = () => {
         }
     };
 
+    const hideOrder = async (orderId) => {
+        const confirmed = window.confirm("Are you sure you want to HIDE this order from the dashboard? It will still be visible to the customer.");
+        if (!confirmed) return;
+
+        try {
+            const { error } = await supabase
+                .from('orders')
+                .update({ admin_hidden: true })
+                .eq('id', orderId);
+
+            if (error) throw error;
+
+            // Update local state
+            setOrders(orders.filter(order => order.id !== orderId));
+        } catch (error) {
+            console.error('Error hiding order:', error);
+            alert('Failed to hide order. Make sure you have added the "admin_hidden" column to your database.');
+        }
+    };
+
     const updateOrderStatus = async (orderId, newStatus) => {
+        if (newStatus === 'cancelled') {
+            const confirmed = window.confirm("Are you sure you want to CANCEL this order? This action cannot be easily undone.");
+            if (!confirmed) return;
+        }
+
         try {
             const { error } = await supabase
                 .from('orders')
@@ -61,7 +111,10 @@ const AdminDashboard = () => {
     return (
         <div className="admin-container">
             <header className="admin-header">
-                <h1>Admin Dashboard</h1>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '20px' }}>
+                    <h1>Admin Dashboard</h1>
+                    <button onClick={handleLogout} className="btn btn-outline" style={{ fontSize: '0.8rem' }}>Admin Logout</button>
+                </div>
                 <div className="admin-stats">
                     <div className="stat-card">
                         <h3>Total Orders</h3>
@@ -85,6 +138,7 @@ const AdminDashboard = () => {
                     <button className={filter === 'processing' ? 'active' : ''} onClick={() => setFilter('processing')}>Processing</button>
                     <button className={filter === 'shipped' ? 'active' : ''} onClick={() => setFilter('shipped')}>Shipped</button>
                     <button className={filter === 'delivered' ? 'active' : ''} onClick={() => setFilter('delivered')}>Delivered</button>
+                    <button className={filter === 'cancelled' ? 'active' : ''} onClick={() => setFilter('cancelled')}>Cancelled</button>
                 </div>
 
                 {loading ? (
@@ -93,6 +147,15 @@ const AdminDashboard = () => {
                     <div className="orders-list">
                         {filteredOrders.map(order => (
                             <div key={order.id} className="order-card">
+                                {(order.status === 'cancelled' || order.status === 'delivered') && (
+                                    <button
+                                        className="btn-remove-alt"
+                                        onClick={() => hideOrder(order.id)}
+                                        title="Hide order from admin dashboard"
+                                    >
+                                        &times;
+                                    </button>
+                                )}
                                 <div className="order-header">
                                     <div>
                                         <span className="order-id">#{order.id.slice(0, 8)}</span>
@@ -102,8 +165,10 @@ const AdminDashboard = () => {
                                 </div>
 
                                 <div className="order-customer">
-                                    <strong>{order.profiles?.full_name || 'Unknown User'}</strong>
+                                    <strong>{order.shipping_address?.fullName || order.profiles?.full_name || 'Unknown User'}</strong>
                                     <span>{order.profiles?.email}</span>
+                                    {order.shipping_address?.phone && <div style={{ fontSize: '0.8rem', color: '#666' }}>📞 {order.shipping_address.phone}</div>}
+                                    {order.shipping_address?.address && <div style={{ fontSize: '0.8rem', color: '#888' }}>🏠 {order.shipping_address.address}, {order.shipping_address.city}</div>}
                                 </div>
 
                                 <div className="order-items-list">
@@ -132,6 +197,13 @@ const AdminDashboard = () => {
                                             <option value="delivered">Delivered</option>
                                             <option value="cancelled">Cancelled</option>
                                         </select>
+                                        <button
+                                            className="btn btn-cancel"
+                                            onClick={() => updateOrderStatus(order.id, 'cancelled')}
+                                            disabled={order.status === 'cancelled'}
+                                        >
+                                            Cancel Order
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -142,5 +214,6 @@ const AdminDashboard = () => {
         </div>
     );
 };
+
 
 export default AdminDashboard;

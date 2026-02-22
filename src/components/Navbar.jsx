@@ -49,6 +49,7 @@ const Navbar = () => {
                 <ul className="nav-links">
                     <li><Link to="/">Home</Link></li>
                     <li><a href="/#products">Products</a></li>
+                    {currentUser && <li><Link to="/orders">My Orders</Link></li>}
                     <li><a href="/#about">About</a></li>
                     {userRole === 'admin' && (
                         <li><Link to="/admin" style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>Dashboard</Link></li>

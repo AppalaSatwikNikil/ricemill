@@ -161,8 +161,8 @@ export function CartProvider({ children }) {
                     price: product.price,
                     quantity: finalQty,
                     weight: realWeight,
-                    image_url: product.image_url,
-                    updated_at: new Date()
+                    image_url: product.image_url
+                    // updated_at: new Date()
                 });
 
             if (error) throw error;
@@ -211,7 +211,7 @@ export function CartProvider({ children }) {
         try {
             const { error } = await supabase
                 .from('cart_items')
-                .update({ quantity, updated_at: new Date() })
+                .update({ quantity })
                 .eq('id', id)
                 .eq('user_id', currentUser.id);
 
@@ -258,8 +258,10 @@ export function CartProvider({ children }) {
         if (cartItems.length === 0) throw new Error("Cart is empty.");
 
         try {
+            console.log("Cart: Initiating order placement (status: pending)...");
             const { total } = getCartBreakdown();
 
+            // 1. Create the base ORDER record first (Pending)
             const { data: orderData, error: orderError } = await supabase
                 .from('orders')
                 .insert({
@@ -267,19 +269,41 @@ export function CartProvider({ children }) {
                     status: 'pending',
                     total_amount: total,
                     payment_method: paymentMethod,
-                    payment_status: paymentMethod === 'cod' ? 'pending' : 'paid',
+                    payment_status: 'pending',
                     shipping_address: shippingDetails
                 })
                 .select()
                 .single();
 
             if (orderError) throw orderError;
+            console.log("Cart: Pending order created with ID:", orderData.id);
+            return orderData.id;
 
-            const orderItemsData = cartItems.map(item => ({
-                order_id: orderData.id,
-                product_id: item.product_id, // Use real product_id from DB
+        } catch (error) {
+            console.error("Cart: placeOrder Error:", error.message);
+            throw error;
+        }
+    };
+
+    /**
+     * Finalizes the order after a successful payment or for COD.
+     * Moves items from cart_items to order_items and clears the cart.
+     */
+    const processPaymentSuccess = async (orderId) => {
+        console.log("Cart: Processing successful payment for order:", orderId);
+
+        try {
+            // 1. Snapshot the current cart items
+            const snapshotItems = [...cartRef.current];
+            if (snapshotItems.length === 0) return;
+
+            // 2. Insert into order_items
+            const orderItemsData = snapshotItems.map(item => ({
+                order_id: orderId,
+                product_id: item.product_id || item.id.split('-').slice(0, -1).join('-'),
                 quantity: item.quantity,
                 price_at_time: item.price
+                // weight: item.weight
             }));
 
             const { error: itemsError } = await supabase
@@ -288,12 +312,59 @@ export function CartProvider({ children }) {
 
             if (itemsError) throw itemsError;
 
-            await clearCart();
-            return orderData.id;
+            // 3. Update Order status
+            const { error: updateError } = await supabase
+                .from('orders')
+                .update({
+                    payment_status: 'paid',
+                    status: 'processing'
+                    // updated_at: new Date()
+                })
+                .eq('id', orderId);
 
+            if (updateError) throw updateError;
+
+            // 4. Clear the cart (DB & Local)
+            await clearCart();
+            console.log("Cart: Order finalized successfully.");
+            return true;
         } catch (error) {
-            console.error("Place Order Error:", error);
+            console.error("Cart: processPaymentSuccess failure:", error.message);
             throw error;
+        }
+    };
+
+    const handleCODFinalize = async (orderId) => {
+        try {
+            console.log("Cart: Finalizing COD order:", orderId);
+            // Snapshot current cart
+            const snapshotItems = [...cartRef.current];
+
+            // Insert into order_items
+            const orderItemsData = snapshotItems.map(item => ({
+                order_id: orderId,
+                product_id: item.product_id || item.id.split('-').slice(0, -1).join('-'),
+                quantity: item.quantity,
+                price_at_time: item.price
+                // weight: item.weight
+            }));
+
+            const { error: itemsError } = await supabase.from('order_items').insert(orderItemsData);
+            if (itemsError) throw itemsError;
+
+            // Update order status for COD
+            const { error: updateError } = await supabase
+                .from('orders')
+                .update({ status: 'processing' })
+                .eq('id', orderId);
+
+            if (updateError) throw updateError;
+
+            await clearCart();
+            return true;
+        } catch (err) {
+            console.error("COD Finalize Error:", err);
+            throw err;
         }
     };
 
@@ -307,6 +378,8 @@ export function CartProvider({ children }) {
             getCartTotal,
             getCartBreakdown,
             placeOrder,
+            processPaymentSuccess,
+            handleCODFinalize,
             generateItemId
         }}>
             {children}

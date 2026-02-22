@@ -142,7 +142,7 @@
     width: 100%;
     margin-top: 1.5rem;
     padding: 1rem;
-    background: var(--primary);
+    background: var(--color-primary);
     color: white;
     border: none;
     border-radius: 8px;
@@ -152,7 +152,7 @@
 }
 
 .checkout-btn:hover {
-    background: var(--primary-dark);
+    background: var(--color-primary-dark);
     transform: translateY(-2px);
 }
 
@@ -172,7 +172,7 @@
     display: inline-block;
     margin-top: 1rem;
     padding: 0.75rem 1.5rem;
-    background: var(--primary);
+    background: var(--color-primary);
     color: white;
     text-decoration: none;
     border-radius: 8px;

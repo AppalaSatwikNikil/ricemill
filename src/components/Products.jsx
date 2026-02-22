@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
@@ -7,6 +8,7 @@ import './Products.css';
 const ProductCard = ({ product }) => {
     const [selectedWeight, setSelectedWeight] = useState("5kg"); // Default weight
     const { cartItems, addToCart, updateQuantity, removeFromCart, generateItemId } = useCart();
+    const navigate = useNavigate();
     const options = ["5kg", "10kg", "25kg"];
 
     // 1. Calculate items for THIS product across all weights
@@ -51,6 +53,13 @@ const ProductCard = ({ product }) => {
 
     const handleAddToCart = () => {
         handleIncrease();
+    };
+
+    const handleBuyNow = async () => {
+        if (quantity === 0) {
+            await addToCart(product, 1);
+        }
+        navigate('/cart');
     };
 
     return (
@@ -100,11 +109,12 @@ const ProductCard = ({ product }) => {
                         </button>
                         <button
                             className="buy-now-btn"
-                            onClick={() => {
+                            style={{ backgroundColor: 'var(--color-green)', color: 'white', fontWeight: 'bold' }}
+                            onClick={async () => {
                                 if (quantity === 0) {
-                                    handleIncrease();
+                                    await addToCart(product, 1);
                                 }
-                                window.location.href = '/checkout';
+                                navigate('/checkout');
                             }}
                         >
                             Buy Now
@@ -120,6 +130,7 @@ const Products = () => {
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const navigate = useNavigate();
 
     const { currentUser } = useAuth();
 

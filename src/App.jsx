@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Home from './components/Home';
 import Footer from './components/Footer';
@@ -10,10 +10,12 @@ import ForgotPassword from './components/ForgotPassword';
 import Cart from './components/Cart';
 import Checkout from './components/Checkout';
 import AdminDashboard from './components/AdminDashboard';
-import AdminRoute from './components/AdminRoute';
-import './App.css';
+import AdminLogin from './components/AdminLogin';
+import Orders from './components/Orders';
+import OrderSuccess from './components/OrderSuccess';
 import PublicRoute from './components/PublicRoute';
 import ProtectedRoute from './components/ProtectedRoute';
+import './App.css';
 
 // Simple Inline Error Boundary for now
 class ErrorBoundary extends React.Component {
@@ -48,10 +50,13 @@ class ErrorBoundary extends React.Component {
 }
 
 function App() {
+  const location = useLocation();
+  const isAdminPath = location.pathname.startsWith('/admin');
+
   return (
     <ErrorBoundary>
       <div className="app">
-        <Navbar />
+        {!isAdminPath && <Navbar />}
         <main className="main-content">
           <Routes>
             {/* Public routes (Login/Register accessible only when logged out) */}
@@ -64,19 +69,19 @@ function App() {
             <Route path="/cart" element={<ProtectedRoute><Cart /></ProtectedRoute>} />
             <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
 
+            <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
+            <Route path="/order-success/:orderId" element={<ProtectedRoute><OrderSuccess /></ProtectedRoute>} />
+
             {/* Admin routes */}
-            <Route path="/admin" element={
-              <AdminRoute>
-                <AdminDashboard />
-              </AdminRoute>
-            } />
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin" element={<AdminDashboard />} />
 
             {/* Catch-all - redirect to landing (Home) which handles auth check */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
-        <Footer />
-        <ChatWidget />
+        {!isAdminPath && <Footer />}
+        {!isAdminPath && <ChatWidget />}
       </div>
     </ErrorBoundary>
   );

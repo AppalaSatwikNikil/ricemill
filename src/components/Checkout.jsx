@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { useCart } from '../context/CartContext';
 import { useNavigate } from 'react-router-dom';
+import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import './Checkout.css';
 
 const Checkout = () => {
-    const { cartItems, getCartBreakdown, placeOrder } = useCart();
+    const { cartItems, getCartBreakdown, placeOrder, processPaymentSuccess, handleCODFinalize } = useCart();
+    const { currentUser } = useAuth();
     const navigate = useNavigate();
     const [paymentMethod, setPaymentMethod] = useState('cod');
     const [loading, setLoading] = useState(false);
@@ -37,12 +39,106 @@ const Checkout = () => {
 
         setLoading(true);
         try {
+            // 1. Create a PENDING order first
             const orderId = await placeOrder(formData, paymentMethod);
-            alert(`Order Placed Successfully! Order ID: ${orderId}`);
-            navigate('/'); // Or to an order success page
+
+            if (paymentMethod === 'cod') {
+                // 2a. Simple COD flow
+                await handleCODFinalize(orderId);
+                navigate(`/order-success/${orderId}`);
+            } else {
+                // 2b. Razorpay Flow
+                handleRazorpayPayment(orderId);
+            }
         } catch (error) {
-            alert("Failed to place order: " + error.message);
-        } finally {
+            console.error("Checkout Error:", error);
+            alert("Failed to initiate order: " + error.message);
+            setLoading(false);
+        }
+    };
+
+    const handleRazorpayPayment = async (orderDbId) => {
+        const { total } = getCartBreakdown();
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+
+        try {
+            // 1. Create Razorpay Order on Backend
+            const orderResponse = await fetch(`${backendUrl}/api/payment/create-order`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    amount: total, // amount in INR
+                    currency: "INR",
+                    receipt: `receipt_${orderDbId}`
+                })
+            });
+
+            if (!orderResponse.ok) throw new Error("Failed to create Razorpay order");
+            const rzpOrder = await orderResponse.json();
+
+            const options = {
+                key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_placeholder',
+                amount: rzpOrder.amount,
+                currency: rzpOrder.currency,
+                name: "Santi Rice Mill",
+                description: "Premium Rice Order",
+                image: "https://your-logo-url.com/logo.png",
+                order_id: rzpOrder.id,
+                handler: async (response) => {
+                    try {
+                        console.log("Razorpay Success Response:", response);
+
+                        // 2. Verify Payment on Backend
+                        const verifyResponse = await fetch(`${backendUrl}/api/payment/verify-payment`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                razorpay_order_id: response.razorpay_order_id,
+                                razorpay_payment_id: response.razorpay_payment_id,
+                                razorpay_signature: response.razorpay_signature
+                            })
+                        });
+
+                        const verifyResult = await verifyResponse.json();
+
+                        if (verifyResult.status === 'success') {
+                            // 3. Finalize in Supabase ONLY after verification success
+                            await processPaymentSuccess(orderDbId);
+                            alert("Payment Successful! Your order is being processed.");
+                            navigate('/orders');
+                        } else {
+                            throw new Error("Payment verification failed");
+                        }
+                    } catch (err) {
+                        console.error("Payment Verification/Finalization Error:", err);
+                        alert("There was a problem verifying your payment. Please contact support.");
+                        setLoading(false);
+                    }
+                },
+                prefill: {
+                    name: formData.fullName,
+                    email: currentUser?.email || "",
+                    contact: formData.phone
+                },
+                notes: {
+                    order_db_id: orderDbId
+                },
+                theme: {
+                    color: "#8b4513"
+                },
+                modal: {
+                    ondismiss: () => {
+                        setLoading(false);
+                        console.log("Payment Modal Dismissed");
+                    }
+                }
+            };
+
+            const rzp = new window.Razorpay(options);
+            rzp.open();
+        } catch (error) {
+            console.error("Razorpay Initiation Error:", error);
+            alert("Failed to start Razorpay payment: " + error.message);
             setLoading(false);
         }
     };
@@ -124,45 +220,31 @@ const Checkout = () => {
                                 </label>
                             </div>
 
-                            <div className={`payment-option ${paymentMethod === 'dodopay' ? 'selected' : ''}`}>
+                            {/* Razorpay hidden as per user request */}
+                            {/* 
+                            <div className={`payment-option ${paymentMethod === 'razorpay' ? 'selected' : ''}`}>
                                 <input
                                     type="radio"
-                                    id="dodopay"
+                                    id="razorpay"
                                     name="payment"
-                                    value="dodopay"
-                                    checked={paymentMethod === 'dodopay'}
+                                    value="razorpay"
+                                    checked={paymentMethod === 'razorpay'}
                                     onChange={handlePaymentChange}
                                 />
-                                <label htmlFor="dodopay">
-                                    <span className="payment-title">Dodopay</span>
-                                    <span className="payment-desc">Secure online payment</span>
+                                <label htmlFor="razorpay">
+                                    <span className="payment-title">Pay via Razorpay</span>
+                                    <span className="payment-desc">UPI, Cards, Netbanking</span>
                                 </label>
-                            </div>
+                            </div> 
+                            */}
                         </div>
 
-                        {paymentMethod === 'dodopay' && (
-                            <div className="dodopay-form">
-                                <h3>Enter Card Details</h3>
-                                <div className="form-group">
-                                    <label>Card Number</label>
-                                    <input type="text" placeholder="0000 0000 0000 0000" maxLength="19" />
-                                </div>
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>Expiry Date</label>
-                                        <input type="text" placeholder="MM/YY" maxLength="5" />
-                                    </div>
-                                    <div className="form-group">
-                                        <label>CVV</label>
-                                        <input type="password" placeholder="123" maxLength="3" />
-                                    </div>
-                                </div>
-                                <div className="form-group">
-                                    <label>Cardholder Name</label>
-                                    <input type="text" placeholder="Name on card" />
-                                </div>
-                            </div>
-                        )}
+                        <div className="checkout-actions-inline" style={{ marginTop: '2rem' }}>
+                            <button type="submit" form="checkout-form" className="btn btn-primary place-order-btn-inline" disabled={loading} style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
+                                {loading ? 'Processing...' : 'Proceed with Cash on Delivery'}
+                            </button>
+                        </div>
+
                     </form>
                 </div>
 
@@ -193,9 +275,10 @@ const Checkout = () => {
                         </div>
                     </div>
 
-                    <button type="submit" form="checkout-form" className="place-order-btn" disabled={loading}>
-                        {loading ? 'Processing...' : (paymentMethod === 'cod' ? 'Place Order' : 'Pay with Dodopay')}
-                    </button>
+                    {/* Main button moved inline under payment options, but keeping a summary button for UX if needed, or removing it if it clashes */}
+                    <p style={{ textAlign: 'center', fontSize: '0.8rem', color: '#666', marginTop: '1rem' }}>
+                        Click the button above to confirm your order.
+                    </p>
                     {loading && <p style={{ textAlign: 'center', marginTop: '10px' }}>Please wait, placing your order...</p>}
                 </div>
             </div >

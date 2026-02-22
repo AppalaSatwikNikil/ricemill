@@ -1,0 +1,141 @@
+.orders-container {
+    max-width: 1000px;
+    margin: 40px auto;
+    padding: 0 20px;
+}
+
+.orders-title {
+    font-size: 2rem;
+    color: var(--color-brown-dark);
+    margin-bottom: 30px;
+    border-bottom: 2px solid var(--color-gold);
+    padding-bottom: 10px;
+}
+
+.no-orders {
+    text-align: center;
+    padding: 60px 20px;
+    background: #fdfdfd;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+}
+
+.order-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    margin-bottom: 25px;
+    overflow: hidden;
+    border: 1px solid #eee;
+}
+
+.order-header {
+    background: #f9f6f2;
+    padding: 15px 25px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #eee;
+}
+
+.order-id {
+    font-weight: 600;
+    color: var(--color-brown-dark);
+}
+
+.order-date {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+.order-body {
+    padding: 25px;
+}
+
+.order-items-list {
+    margin-bottom: 20px;
+}
+
+.order-item-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px dashed #eee;
+}
+
+.order-item-row:last-child {
+    border-bottom: none;
+}
+
+.order-footer {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 20px;
+    padding: 20px 25px;
+    background: #fff;
+    border-top: 1px solid #eee;
+}
+
+.order-meta-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.meta-label {
+    font-size: 0.8rem;
+    color: #888;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+}
+
+.meta-value {
+    font-weight: 600;
+    color: var(--color-brown-dark);
+}
+
+.status-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.status-pending {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.status-processing {
+    background: #cce5ff;
+    color: #004085;
+}
+
+.status-shipped {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-delivered {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.status-cancelled {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.payment-status-badge {
+    font-size: 0.8rem;
+    margin-left: 8px;
+    font-style: italic;
+}
+
+.payment-paid {
+    color: #28a745;
+}
+
+.payment-pending {
+    color: #ffc107;
+}
