@@ -39,65 +39,57 @@ export function AuthProvider({ children }) {
     useEffect(() => {
         let mounted = true;
 
-        const initializeAuth = async () => {
-            console.log("Starting Auth Initialization...");
-
-            // Set a safety timeout - if auth check takes > 5s, 
-            // force loading to false to show the UI
-            const timeout = setTimeout(() => {
-                if (mounted && loading) {
-                    console.warn("Auth initialization timed out - forcing loading to false");
-                    setLoading(false);
-                }
-            }, 5000);
-
+        // Determine session and set up listener in one stable effect
+        const initSession = async () => {
+            console.log("Auth: Initializing...");
             try {
-                // Get initial session
-                console.log("Fetching Supabase session...");
+                // 1. Get initial session
                 const { data: { session }, error } = await supabase.auth.getSession();
-
                 if (error) throw error;
 
                 if (mounted) {
                     if (session?.user) {
-                        console.log("Session found for:", session.user.email);
+                        console.log("Auth: Initial session found for", session.user.email);
                         setCurrentUser(session.user);
-                        fetchProfile(session.user.id);
+                        fetchProfile(session.user.id); // Non-blocking: let UI unlock first
                     } else {
-                        console.log("No active session found.");
+                        console.log("Auth: No initial session.");
                     }
                 }
             } catch (err) {
-                console.error("Auth initialization error:", err);
+                console.error("Auth: Init error:", err.message);
             } finally {
-                clearTimeout(timeout);
+                // Deterministically end loading after the first definitive check
                 if (mounted) {
-                    console.log("Auth Initialization complete.");
+                    console.log("Auth: First check complete. UI unlocked.");
                     setLoading(false);
                 }
             }
         };
 
-        initializeAuth();
+        initSession();
 
+        // 2. Listen for all future auth events
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            console.log("Auth State Change:", event, session?.user?.email);
-            if (mounted) {
-                if (session?.user) {
-                    setCurrentUser(session.user);
-                    // Only fetch profile if we don't have it or user changed
-                    await fetchProfile(session.user.id);
-                } else {
-                    setCurrentUser(null);
-                    setUserRole(null);
-                }
-                setLoading(false);
+            console.log("Auth Event:", event, session?.user?.email);
+
+            if (!mounted) return;
+
+            if (session?.user) {
+                setCurrentUser(session.user);
+                fetchProfile(session.user.id);
+            } else {
+                setCurrentUser(null);
+                setUserRole(null);
             }
+
+            // Ensure any event-driven change also clears loading just in case
+            setLoading(false);
         });
 
         return () => {
             mounted = false;
-            subscription.unsubscribe();
+            subscription?.unsubscribe();
         };
     }, []);
 

@@ -13,67 +13,89 @@ export function CartProvider({ children }) {
     const [cartItems, setCartItems] = useState([]);
     const [isInitialLoad, setIsInitialLoad] = useState(true);
     const cartRef = React.useRef([]);
+    const lastSessionId = React.useRef(null);
 
-    // Truly synchronous helper to update both state and ref
+    // Truly synchronous helper to update BOTH state and ref
     const syncState = (nextItems) => {
         cartRef.current = nextItems;
         setCartItems(nextItems);
+        // Only persist guest cart to localStorage
         if (!currentUser) {
             localStorage.setItem('cart_guest', JSON.stringify(nextItems));
         }
     };
 
+    // Stable ID generation to prevent multi-user collisions in the shared DB
+    const generateItemId = (productId, weight) => {
+        const prefix = currentUser ? currentUser.id : 'guest';
+        return `${prefix}-${productId}-${weight}`;
+    };
+
     const fetchCart = async () => {
-        if (!currentUser) {
+        const userId = currentUser?.id;
+
+        // Path A: Guest Mode
+        if (!userId) {
             try {
                 const localData = localStorage.getItem('cart_guest');
-                const items = localData ? JSON.parse(localData) : [];
-                const finalItems = Array.isArray(items) ? items : [];
-                cartRef.current = finalItems;
-                setCartItems(finalItems);
+                if (localData) {
+                    const items = JSON.parse(localData);
+                    const finalItems = Array.isArray(items) ? items : [];
+                    syncState(finalItems);
+                }
             } catch (err) {
-                console.error('Error parsing local cart:', err);
-                setCartItems([]);
+                console.warn('Cart: Guest parse error:', err.message);
             }
+            lastSessionId.current = null;
             return;
         }
 
-        const timeoutPromise = (ms) => new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('CART_FETCH_TIMEOUT')), ms)
-        );
+        // Path B: Logged In Mode
+        // Fetch only once per login session to prevent redundant waves or wiping
+        if (lastSessionId.current === userId) return;
 
         try {
-            console.log("Cart: Fetching from DB for user:", currentUser.id);
-            const fetchCall = supabase
+            console.log("Cart: Fetching user data from DB...");
+            const { data, error } = await supabase
                 .from('cart_items')
                 .select('*')
-                .eq('user_id', currentUser.id);
-
-            const { data, error } = await Promise.race([fetchCall, timeoutPromise(6000)]);
+                .eq('user_id', userId);
 
             if (error) throw error;
-            console.log("Cart: Successfully fetched", data?.length, "items.");
-            const items = Array.isArray(data) ? data : [];
-            cartRef.current = items;
-            setCartItems(items);
+
+            const fetchedItems = Array.isArray(data) ? data : [];
+            console.log("Cart: Fetch successful, loaded", fetchedItems.length);
+            syncState(fetchedItems);
+            lastSessionId.current = userId;
         } catch (error) {
-            console.error('Cart: Error fetching from DB:', error.message);
-            setCartItems([]); // Fallback to empty array on error
+            console.error('Cart: DB Fetch Error (Sticky State active):', error.message);
+            // STICKY DATA: We do NOT clear the state here.
+            // This ensures the cart remains visible during cold starts or hiccups.
         }
     };
 
     // Load cart on start and when user changes
     useEffect(() => {
-        const init = async () => {
-            await fetchCart();
-            setIsInitialLoad(false);
-        };
-        init();
+        fetchCart();
+        setIsInitialLoad(false);
 
-        // Optional: Listen for focus to sync across tabs
-        const handleFocus = () => fetchCart();
-        window.addEventListener('focus', handleFocus);
-        return () => window.removeEventListener('focus', handleFocus);
+        // Sync guest cart across tabs using standard storage event
+        const handleStorageChange = (e) => {
+            if (e.key === 'cart_guest' && !currentUser) {
+                try {
+                    const nextItems = JSON.parse(e.newValue);
+                    if (Array.isArray(nextItems)) {
+                        cartRef.current = nextItems;
+                        setCartItems(nextItems);
+                    }
+                } catch (err) {
+                    console.error("Cart: Storage sync error:", err);
+                }
+            }
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+        return () => window.removeEventListener('storage', handleStorageChange);
     }, [currentUser]);
 
     // Merge guest cart on login
@@ -91,10 +113,14 @@ export function CartProvider({ children }) {
     }, [currentUser, isInitialLoad]);
 
     const mergeGuestCart = async (items) => {
+        console.log("Cart: Merging guest cart into user session...");
         for (const item of items) {
-            await addToCart(item, item.quantity);
+            // Recalculate the ID for the logged-in user context
+            const cleanProductId = item.product_id || (item.id.includes('-') ? item.id.split('-').slice(1, -1).join('-') : item.id);
+            const newId = generateItemId(cleanProductId, item.weight);
+            await addToCart({ ...item, id: newId, product_id: cleanProductId }, item.quantity);
         }
-        await fetchCart();
+        // No need to fetchCart here, addToCart handles sync/ref
     };
 
     const addToCart = async (product, quantity = 1) => {
@@ -280,7 +306,8 @@ export function CartProvider({ children }) {
             clearCart,
             getCartTotal,
             getCartBreakdown,
-            placeOrder
+            placeOrder,
+            generateItemId
         }}>
             {children}
         </CartContext.Provider>

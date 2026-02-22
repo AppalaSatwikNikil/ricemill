@@ -6,10 +6,11 @@ import './Products.css';
 
 const ProductCard = ({ product }) => {
     const [selectedWeight, setSelectedWeight] = useState("5kg"); // Default weight
-    const { cartItems, addToCart, updateQuantity, removeFromCart } = useCart();
+    const { cartItems, addToCart, updateQuantity, removeFromCart, generateItemId } = useCart();
 
     const options = ["5kg", "10kg", "25kg"];
-    const cartItemId = `${product.id}-${selectedWeight}`;
+    // Stable, user-isolated ID
+    const cartItemId = generateItemId(product.id, selectedWeight);
     const cartItem = cartItems.find(item => item.id === cartItemId);
     const quantity = cartItem ? cartItem.quantity : 0;
 
@@ -114,66 +115,27 @@ const Products = () => {
     const fetchProducts = async () => {
         if (fetchInProgress.current) return;
 
-        setActiveDebug(true);
         fetchInProgress.current = true;
         setLoading(true);
         setError(null);
-        setDebugStatus('Starting multi-path fetch...');
-
-        const timeoutPromise = (ms) => new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('NETWORK_TIMEOUT')), ms)
-        );
+        setDebugStatus('Fetching products...');
 
         try {
-            console.log("Products: Trying Supabase Client path...");
-            setDebugStatus('Querying via Supabase Client...');
+            console.log("Products: Querying Supabase...");
+            const { data, error } = await supabase.from('products').select('*');
 
-            // Try Supabase client with a 7s timeout
-            const supabasePromise = supabase.from('products').select('*');
-            const data = await Promise.race([supabasePromise, timeoutPromise(7000)]);
+            if (error) throw error;
 
-            if (data.error) throw data.error;
-
-            console.log("Products: Supabase Client success!", data.data?.length);
-            setProducts(data.data || []);
-            setDebugStatus(`Success! Loaded ${data.data?.length} products.`);
+            console.log("Products: Success!", data?.length, "items loaded.");
+            setProducts(data || []);
+            setDebugStatus(`Loaded ${data?.length} products successfully.`);
         } catch (err) {
-            console.error('Products: Supabase Client path failed:', err);
-
-            if (err.message === 'NETWORK_TIMEOUT') {
-                setDebugStatus('Client timed out. Trying Direct API Fetch...');
-                try {
-                    // Fallback to direct REST API call if the client library is hanging
-                    const directUrl = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/products?select=*`;
-                    const directResponse = await Promise.race([
-                        fetch(directUrl, {
-                            headers: {
-                                'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-                                'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-                            }
-                        }),
-                        timeoutPromise(5000)
-                    ]);
-
-                    if (!directResponse.ok) throw new Error(`API returned ${directResponse.status}`);
-
-                    const directData = await directResponse.json();
-                    console.log("Products: Direct API Path success!", directData?.length);
-                    setProducts(directData || []);
-                    setDebugStatus(`Loaded via API Fallback (${directData?.length} items).`);
-                } catch (fallbackErr) {
-                    console.error('Products: Fallback path also failed:', fallbackErr);
-                    setError(`Connection Error: ${fallbackErr.message}. Please check if an ad-blocker is blocking Supabase.`);
-                    setDebugStatus(`Critical failure: ${fallbackErr.message}`);
-                }
-            } else {
-                setError(`Database Error: ${err.message}`);
-                setDebugStatus(`Failed: ${err.message}`);
-            }
+            console.error('Products: Fetch failed:', err);
+            setError(`Database Error: ${err.message}`);
+            setDebugStatus(`Failed: ${err.message}`);
         } finally {
             setLoading(false);
             fetchInProgress.current = false;
-            console.log("Products: Fetch cycle complete.");
         }
     };
 
